@@ -1,8 +1,10 @@
+AWSTemplateFormatVersion: '2010-09-09'
 Description:
-  This template deploys a VPC, with a pair of public and private subnets spread
+  This template deploys a VPC, with a pair of public, and 4 private subnets spread
   across two Availability Zones. It deploys an Internet Gateway, with a default
-  route on the public subnets. It deploys a pair of NAT Gateways (one in each AZ),
-  and default routes for them in the private subnets.
+  route on the public subnets. It deploys a VPN Gateway and default route for it in
+  the private subnets It deploys a pair of NAT Gateways (one in each AZ),
+  and default routes for them in the provate subnets for applications.
 
 Parameters:
   EnvironmentName:
@@ -29,32 +31,32 @@ Parameters:
     Default: 10.0.8.0/24
 
   PrivateSubnet1CIDR:
-    Description: Please enter the IP range (CIDR notation) for the private subnet in the first Availability Zone
+    Description: Please enter the IP range (CIDR notation) for the private subnet (DB subnet 1) in the first Availability Zone
     Type: String
     Default: 10.0.1.0/24
 
   PrivateSubnet2CIDR:
-    Description: Please enter the IP range (CIDR notation) for the private subnet in the second Availability Zone
+    Description: Please enter the IP range (CIDR notation) for the private subnet (DB subnet 2) in the second Availability Zone
     Type: String
     Default: 10.0.2.0/24
 
   PrivateSubnet3CIDR:
-    Description: Please enter the IP range (CIDR notation) for the private subnet in the first Availability Zone
+    Description: Please enter the IP range (CIDR notation) for the private subnet (Solr subnet 1) in the first Availability Zone
     Type: String
     Default: 10.0.3.0/24
 
   PrivateSubnet4CIDR:
-    Description: Please enter the IP range (CIDR notation) for the private subnet in the second Availability Zone
+    Description: Please enter the IP range (CIDR notation) for the private subnet (Solr subnet 2) in the second Availability Zone
     Type: String
     Default: 10.0.4.0/24
 
   PrivateSubnet5CIDR:
-    Description: Please enter the IP range (CIDR notation) for the private subnet in the first Availability Zone
+    Description: Please enter the IP range (CIDR notation) for the private subnet (App subnet 1) in the first Availability Zone
     Type: String
     Default: 10.0.5.0/24
 
   PrivateSubnet6CIDR:
-    Description: Please enter the IP range (CIDR notation) for the private subnet in the second Availability Zone
+    Description: Please enter the IP range (CIDR notation) for the private subnet (App subnet 2) in the second Availability Zone
     Type: String
     Default: 10.0.6.0/24
 
@@ -64,8 +66,13 @@ Parameters:
     Default: 8.8.8.8/32
     MinLength: '10'
     MaxLength: '18'
-    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})"
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
     ConstraintDescription: Must be a valid IP address format x.x.x.x/32
+
+  DNSZoneName:
+    Description: An internal DNS zone name
+    Type: String
+    Default: aiacloud.local
 
 Resources:
   VPC:
@@ -213,12 +220,57 @@ Resources:
     Properties:
       AllocationId: !GetAtt NatGateway1EIP.AllocationId
       SubnetId: !Ref PublicSubnet1
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} NAT GW 1 (AZ1)
 
   NatGateway2:
     Type: AWS::EC2::NatGateway
     Properties:
       AllocationId: !GetAtt NatGateway2EIP.AllocationId
       SubnetId: !Ref PublicSubnet2
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} NAT GW 2 (AZ2)
+
+  MainRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} Private Routes
+
+#  DefaultMainRoute:
+#    Type: AWS::EC2::Route
+#    Properties:
+#      RouteTableId: !Ref MainRouteTable
+#      DestinationCidrBlock: 0.0.0.0/0
+#      NatGatewayId: !Ref VPNGateway1
+#
+  PrivateSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref MainRouteTable
+      SubnetId: !Ref PrivateSubnet1
+
+  PrivateSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref MainRouteTable
+      SubnetId: !Ref PrivateSubnet2
+
+  PrivateSubnet3RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref MainRouteTable
+      SubnetId: !Ref PrivateSubnet3
+
+  PrivateSubnet4RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref MainRouteTable
+      SubnetId: !Ref PrivateSubnet4
 
   PublicRouteTable:
     Type: AWS::EC2::RouteTable
@@ -257,12 +309,20 @@ Resources:
         - Key: Name
           Value: !Sub ${EnvironmentName} DMZ Routes (AZ1)
 
-  DefaultDMZRoute1:
+  LicenseServerDMZRoute1:
     Type: AWS::EC2::Route
     Properties:
       RouteTableId: !Ref DMZRouteTable1
-      DestinationCidrBlock: 0.0.0.0/0
+      DestinationCidrBlock: !Ref LicenseServerIP
       NatGatewayId: !Ref NatGateway1
+
+#  WorldDMZRoute1:
+#    Type: AWS::EC2::Route
+#    DependsOn: VPNGatewayAttachment
+#    Properties:
+#      RouteTableId: !Ref DMZRouteTable1
+#      DestinationCidrBlock: 0.0.0.0/0
+#      VpnGatewayId: !Ref VPNGateway1
 
   PrivateSubnet5RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
@@ -278,12 +338,20 @@ Resources:
         - Key: Name
           Value: !Sub ${EnvironmentName} DMZ Routes (AZ2)
 
-  DefaultDMZRoute2:
+  LicenseServerDMZRoute2:
     Type: AWS::EC2::Route
     Properties:
       RouteTableId: !Ref DMZRouteTable2
-      DestinationCidrBlock: 0.0.0.0/0
+      DestinationCidrBlock: !Ref LicenseServerIP
       NatGatewayId: !Ref NatGateway2
+
+#  WorldDMZRoute2:
+#    Type: AWS::EC2::Route
+#    DependsOn: VPNGatewayAttachment
+#    Properties:
+#      RouteTableId: !Ref DMZRouteTable2
+#      DestinationCidrBlock: 0.0.0.0/0
+#      InstanceId: !Ref VPNGateway1
 
   PrivateSubnet6RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
@@ -291,44 +359,12 @@ Resources:
       RouteTableId: !Ref DMZRouteTable2
       SubnetId: !Ref PrivateSubnet6
 
-  MainRouteTable:
-    Type: AWS::EC2::RouteTable
+  VPNGatewayRouteProp:
+    Type: AWS::EC2::VPNGatewayRoutePropagation
+    DependsOn: VPNGatewayAttachment
     Properties:
-      VpcId: !Ref VPC
-      Tags:
-        - Key: Name
-          Value: !Sub ${EnvironmentName} Private Routes
-
-  DefaultMainRoute:
-    Type: AWS::EC2::Route
-    Properties:
-      RouteTableId: !Ref MainRouteTable
-      DestinationCidrBlock: 0.0.0.0/0
-      NatGatewayId: !Ref VPNGateway1
-
-  PrivateSubnet1RouteTableAssociation:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      RouteTableId: !Ref MainRouteTable
-      SubnetId: !Ref PrivateSubnet1
-
-  PrivateSubnet2RouteTableAssociation:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      RouteTableId: !Ref MainRouteTable
-      SubnetId: !Ref PrivateSubnet2
-
-  PrivateSubnet3RouteTableAssociation:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      RouteTableId: !Ref MainRouteTable
-      SubnetId: !Ref PrivateSubnet3
-
-  PrivateSubnet4RouteTableAssociation:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      RouteTableId: !Ref MainRouteTable
-      SubnetId: !Ref PrivateSubnet4
+      RouteTableIds: [!Ref DMZRouteTable1, !Ref DMZRouteTable2, !Ref MainRouteTable]
+      VpnGatewayId: !Ref VPNGateway1
 
   NoIngressSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -352,10 +388,33 @@ Resources:
       - IpProtocol: -1
         CidrIp: 0.0.0.0/0
 
+  DNS:
+    Type: "AWS::Route53::HostedZone"
+    Properties:
+      HostedZoneConfig:
+        Comment: "Private hosted zone for AIA Cloud solution"
+      Name: !Ref DNSZoneName
+      VPCs:
+        -
+          VPCId: !Ref VPC
+          VPCRegion: !Ref AWS::Region
+      HostedZoneTags:
+        -
+          Key: Name
+          Value: !Sub ${EnvironmentName} Private hosted zone
+
 Outputs:
   VPC:
     Description: A reference to the created VPC
     Value: !Ref VPC
+
+  DBSubnets:
+    Description: A list of the private DB subnets
+    Value: !Join [ ",", [ !Ref PrivateSubnet1, !Ref PrivateSubnet2 ]]
+
+  SolrSubnets:
+    Description: A list of the private Solr subnets
+    Value: !Join [ ",", [ !Ref PrivateSubnet3, !Ref PrivateSubnet4 ]]
 
   PublicSubnets:
     Description: A list of the public subnets
@@ -363,7 +422,7 @@ Outputs:
 
   PrivateSubnets:
     Description: A list of the private subnets
-    Value: !Join [ ",", [ !Ref PrivateSubnet1, !Ref PrivateSubnet2 ]]
+    Value: !Join [ ",", [ !Ref PrivateSubnet1, !Ref PrivateSubnet2, !Ref PrivateSubnet3, !Ref PrivateSubnet4, !Ref PrivateSubnet5, !Ref PrivateSubnet6 ]]
 
   PublicSubnet1:
     Description: A reference to the public subnet in the 1st Availability Zone
@@ -396,6 +455,10 @@ Outputs:
   PrivateSubnet6:
     Description: A reference to the private subnet in the 2nd Availability Zone
     Value: !Ref PrivateSubnet6
+
+  VPNGateway:
+    Description: A reference to the VPNGateway created in the VPC
+    Value: !Ref VPNGateway1
 
   NoIngressSecurityGroup:
     Description: Security group with no ingress rule
