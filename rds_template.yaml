@@ -1,0 +1,109 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description:
+  This template deploys a RDS (MS SQL) in MultiAZ-mode.
+
+Parameters:
+  MainStackName:
+    Description: The name of the VPC Stack
+    Type: String
+    Default: MainStack
+
+  DBName:
+    Description: DB instance identifier
+    Type: String
+    MinLength: '1'
+    MaxLength: '15'
+    Default: mydb
+    ConstraintDescription: DB instance identifier is case insensitive, but stored as all lower-case, as in "mydbinstance". Must contain from 1 to 63 alphanumeric characters or hyphens (1 to 15 for SQL Server). First character must be a letter. Cannot end with a hyphen or contain two consecutive hyphens.
+
+  DBUser:
+    Description: The database admin account username
+    NoEcho: true
+    Type: String
+    MinLength: '4'
+    MaxLength: '18'
+    Default: DBadmin
+    AllowedPattern: "[a-zA-Z][a-zA-Z0-9]*"
+    ConstraintDescription: Must begin with a letter and contain only alphanumeric characters
+
+  DBPassword:
+    Description: The database admin account password
+    NoEcho: true
+    Type: String
+    MinLength: '8'
+    MaxLength: '41'
+    Default: mypassword
+#    AllowedPattern: "^(?=.*[0-9])(?=.*[a-zA-Z])([a-zA-Z0-9]+)"
+    ConstraintDescription: Master Password must be at least eight characters long, as in "mypassword". Can be any printable ASCII character except "/", """, or "@".
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+    - Label:
+        default: SQL Instance name, master username and password
+      Parameters:
+        - DBName
+        - DBUser
+        - DBPassword
+      ParameterLabels:
+        DBName:
+            default: Instance name
+        DBUser:
+            default: Master user name
+        DBPassword:
+            default: Password
+
+Resources:
+  SQLServerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: SQL Server Security Group
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: '1433'
+        ToPort: '1433'
+        CidrIp: 0.0.0.0/0
+
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupName: DBSubnets
+      DBSubnetGroupDescription: "Amazon RDS Microsoft SQL Subnet Group"
+      SubnetIds:
+        - Fn::ImportValue:
+            !Sub '${MainStackName}-DBSubnet1'
+        - Fn::ImportValue:
+            !Sub '${MainStackName}-DBSubnet2'
+
+
+  SQLDatabase:
+    Type: AWS::RDS::DBInstance
+    DependsOn: SQLServerSecurityGroup
+    DeletionPolicy: Snapshot
+    Properties:
+      Engine: sqlserver-se
+      LicenseModel: "license-included"
+      EngineVersion: "12.00.5571.0.v1"
+      DBInstanceClass: db.r4.large
+      MultiAZ: true
+      DBInstanceIdentifier: !Ref DBName
+      MasterUsername: !Ref DBUser
+      MasterUserPassword: !Ref DBPassword
+      StorageType: "io1"
+      StorageEncrypted: "true"
+      AllocatedStorage: 20
+      Iops: 1000
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VPCSecurityGroups:
+        - Fn::GetAtt:
+          - SQLServerSecurityGroup
+          - GroupId
+      Tags:
+        - Key: Name
+          Value: "MS SQL Database"
+#Fn::ImportValue: !Sub '${MainStackName}-VPC'
+
+Outputs:
+   SQLDatabaseEndpoint:
+     Description: Database endpoint
+     Value: !Sub "${SQLDatabase.Endpoint.Address}:${SQLDatabase.Endpoint.Port}"

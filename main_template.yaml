@@ -316,14 +316,6 @@ Resources:
       DestinationCidrBlock: !Ref LicenseServerIP
       NatGatewayId: !Ref NatGateway1
 
-#  WorldDMZRoute1:
-#    Type: AWS::EC2::Route
-#    DependsOn: VPNGatewayAttachment
-#    Properties:
-#      RouteTableId: !Ref DMZRouteTable1
-#      DestinationCidrBlock: 0.0.0.0/0
-#      VpnGatewayId: !Ref VPNGateway1
-
   PrivateSubnet5RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
@@ -344,14 +336,6 @@ Resources:
       RouteTableId: !Ref DMZRouteTable2
       DestinationCidrBlock: !Ref LicenseServerIP
       NatGatewayId: !Ref NatGateway2
-
-#  WorldDMZRoute2:
-#    Type: AWS::EC2::Route
-#    DependsOn: VPNGatewayAttachment
-#    Properties:
-#      RouteTableId: !Ref DMZRouteTable2
-#      DestinationCidrBlock: 0.0.0.0/0
-#      InstanceId: !Ref VPNGateway1
 
   PrivateSubnet6RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
@@ -407,10 +391,14 @@ Outputs:
   VPC:
     Description: A reference to the created VPC
     Value: !Ref VPC
+    Export:
+      Name: !Sub ${AWS::StackName}-VPC
 
   DBSubnets:
     Description: A list of the private DB subnets
     Value: !Join [ ",", [ !Ref PrivateSubnet1, !Ref PrivateSubnet2 ]]
+    Export:
+      Name: !Sub ${AWS::StackName}-DBSubnets
 
   SolrSubnets:
     Description: A list of the private Solr subnets
@@ -435,10 +423,14 @@ Outputs:
   PrivateSubnet1:
     Description: A reference to the private subnet in the 1st Availability Zone
     Value: !Ref PrivateSubnet1
+    Export:
+      Name: !Sub ${AWS::StackName}-DBSubnet1
 
   PrivateSubnet2:
     Description: A reference to the private subnet in the 2nd Availability Zone
     Value: !Ref PrivateSubnet2
+    Export:
+      Name: !Sub ${AWS::StackName}-DBSubnet2
 
   PrivateSubnet3:
     Description: A reference to the private subnet in the 1st Availability Zone
